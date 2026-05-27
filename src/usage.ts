@@ -77,10 +77,10 @@ async function fetchCodexUsageWithAuth(
   }
 
   if (!res.ok) {
-    if (res.body) {
-      await safeResponseText(res, { limit: 500, fallback: "<unreadable>" }).catch(() => "");
-    }
-    throw new UsageError(`Codex usage request failed (${res.status}).`, res.status);
+    const detail = res.body
+      ? await safeResponseText(res, { limit: 500, fallback: "<unreadable>" })
+      : "<no body>";
+    throw new UsageError(`Codex usage request failed (${res.status}): ${detail}`, res.status);
   }
 
   let raw: unknown;

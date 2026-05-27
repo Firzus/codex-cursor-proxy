@@ -19,6 +19,10 @@ export interface ServiceState {
   logPath: string;
 }
 
+export interface ServiceQueryState {
+  setUp: boolean;
+}
+
 export function assertWindows(action: string): void {
   if (process.platform !== "win32") {
     throw new ServiceError(`Service ${action} is Windows-only for now.`);
@@ -103,29 +107,28 @@ export async function downService(): Promise<void> {
   await safeUnlink(RUNNER_CMD);
 }
 
-export function queryService(): ServiceState {
+export function queryService(): ServiceQueryState {
   if (process.platform !== "win32") {
-    return { setUp: false, started: false, startError: null, logPath: LOG_FILE };
+    return { setUp: false };
   }
   const result = spawnSync(
     "schtasks",
     ["/Query", "/TN", SERVICE_NAME],
     { encoding: "utf8" },
   );
-  return {
-    setUp: result.status === 0,
-    started: result.status === 0,
-    startError: null,
-    logPath: LOG_FILE,
-  };
+  return { setUp: result.status === 0 };
 }
 
 async function safeUnlink(path: string): Promise<void> {
   try {
     await unlink(path);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if (!hasErrorCode(err, "ENOENT")) throw err;
   }
+}
+
+function hasErrorCode(err: unknown, code: string): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === code;
 }
 
 function trimOutput(text: string): string {

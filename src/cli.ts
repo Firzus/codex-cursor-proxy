@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { AuthError, authFilePath, getAuth } from "./auth.ts";
-import { TUNNEL_CONFIG } from "./paths.ts";
+import { withTimeout } from "./http.ts";
 import { readTail } from "./logs.ts";
+import { SERVICE_NAME, TUNNEL_CONFIG } from "./paths.ts";
 import { PORT, SUPPORTED_MODELS, runServer } from "./server.ts";
 import {
   ServiceError,
@@ -67,10 +68,10 @@ async function runUp(argv: string[]): Promise<void> {
       throw new ServiceError("Cannot resolve script path from argv[1].");
     }
     const state = await upService(scriptPath);
-    printServiceUp("CodexCursorProxy", state.logPath);
+    printServiceUp(SERVICE_NAME, state.logPath);
     if (!state.started) {
       log.warn(`Task created but failed to start now: ${state.startError ?? "unknown"}`);
-      log.info(`It will start on next logon. Run manually: schtasks /Run /TN CodexCursorProxy`);
+      log.info(`It will start on next logon. Run manually: schtasks /Run /TN ${SERVICE_NAME}`);
     }
   } catch (err) {
     if (err instanceof ServiceError) {
@@ -95,12 +96,9 @@ async function runDown(): Promise<void> {
 }
 
 async function runStatus(): Promise<void> {
-  let account = "<unknown>";
-  let plan: string | null = null;
+  let auth: Awaited<ReturnType<typeof getAuth>>;
   try {
-    const auth = await getAuth();
-    account = auth.email ?? auth.chatgptAccountId;
-    plan = auth.planType;
+    auth = await getAuth();
   } catch (err) {
     if (err instanceof AuthError && err.code === "missing") {
       printMissingAuth(authFilePath());
@@ -108,6 +106,8 @@ async function runStatus(): Promise<void> {
     }
     throw err;
   }
+  const account = auth.email ?? auth.chatgptAccountId;
+  const plan = auth.planType;
 
   const svc = queryService();
   const service: "set-up" | "absent" | "n/a" =
@@ -117,12 +117,15 @@ async function runStatus(): Promise<void> {
   const proxyReachable = await pingHealth(localUrl);
 
   let tunnelUrl: string | null = null;
+  let tunnelRaw: string | null = null;
   try {
-    const raw = await readFile(TUNNEL_CONFIG, "utf8");
-    const cfg = JSON.parse(raw) as { url?: string };
-    if (cfg.url) tunnelUrl = cfg.url;
-  } catch {
-    // no tunnel config yet
+    tunnelRaw = await readFile(TUNNEL_CONFIG, "utf8");
+  } catch (err) {
+    if (!hasErrorCode(err, "ENOENT")) throw err;
+  }
+  if (tunnelRaw) {
+    const cfg = JSON.parse(tunnelRaw) as { url?: unknown };
+    if (typeof cfg.url === "string") tunnelUrl = cfg.url;
   }
 
   printStatus({
@@ -179,14 +182,17 @@ async function runLogs(): Promise<void> {
 }
 
 async function pingHealth(localUrl: string): Promise<boolean> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 1000);
+  const t = withTimeout(1000, "health check");
   try {
-    const res = await fetch(`${localUrl}/health`, { signal: controller.signal });
+    const res = await fetch(`${localUrl}/health`, { signal: t.signal });
     return res.ok;
   } catch {
     return false;
   } finally {
-    clearTimeout(timer);
+    t.clear();
   }
+}
+
+function hasErrorCode(err: unknown, code: string): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === code;
 }
