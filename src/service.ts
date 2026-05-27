@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { LAUNCHER_VBS, LOG_FILE, PROXY_DIR, SERVICE_NAME } from "./paths.ts";
 
 const RUNNER_CMD = join(PROXY_DIR, "runner.cmd");
@@ -30,9 +30,16 @@ export async function installService(scriptPath: string): Promise<ServiceState> 
   await mkdir(PROXY_DIR, { recursive: true });
 
   const bunPath = process.execPath;
+  // Bun auto-loads `.env` from the current working directory. Scheduled tasks
+  // launched at logon inherit System32 as cwd, so we `cd` into the project
+  // root first — otherwise CLOUDFLARE_TUNNEL_TOKEN / _HOSTNAME are missing
+  // and the proxy aborts at startup.
+  const absoluteScript = resolve(scriptPath);
+  const projectRoot = resolve(dirname(absoluteScript), "..");
   const runnerContent =
     `@echo off\r\n` +
-    `"${bunPath}" run "${scriptPath}" start >> "${LOG_FILE}" 2>&1\r\n`;
+    `cd /D "${projectRoot}"\r\n` +
+    `"${bunPath}" run "${absoluteScript}" start >> "${LOG_FILE}" 2>&1\r\n`;
   await writeFile(RUNNER_CMD, runnerContent, "utf8");
 
   const vbsContent =
