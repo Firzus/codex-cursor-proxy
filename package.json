@@ -1,0 +1,44 @@
+{
+  "name": "codex-cursor-proxy",
+  "version": "0.1.0",
+  "description": "Minimal Bun CLI that exposes your ChatGPT Plus/Pro Codex subscription as an OpenAI-compatible endpoint for Cursor.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "codex-cursor-proxy": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "status": "bun run src/index.ts status",
+    "logs": "bun run src/index.ts logs",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck"
+  },
+  "keywords": [
+    "cli",
+    "bun",
+    "openai",
+    "chatgpt",
+    "codex",
+    "cursor",
+    "proxy",
+    "cloudflare-tunnel"
+  ],
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "cloudflared": "^0.7.1",
+    "picocolors": "^1.1.1",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
