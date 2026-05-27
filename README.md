@@ -5,11 +5,11 @@
 [![Bun](https://img.shields.io/badge/Bun-%3E%3D1.1-000000?style=flat-square&logo=bun&logoColor=white)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-blue?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 
-[Overview](#overview) | [Features](#features) | [Installation](#installation) | [Usage](#usage) | [Configuration](#configuration) | [Development](#development)
+[Overview](#overview) | [Features](#features) | [Setup](#setup) | [Usage](#usage) | [Configuration](#configuration) | [Development](#development)
 
 ## Overview
 
-`codex-cursor-proxy` is a Bun CLI that starts a local OpenAI-compatible HTTP endpoint for Cursor, forwards requests to ChatGPT Codex, and exposes the local server through a **named Cloudflare Tunnel** you control (token + hostname required). It supports both Chat Completions and Responses-style requests, translates streaming responses for Cursor, and can install itself as a Windows scheduled task.
+`codex-cursor-proxy` is a Bun CLI that starts a local OpenAI-compatible HTTP endpoint for Cursor, forwards requests to ChatGPT Codex, and exposes the local server through a **named Cloudflare Tunnel** you control (token + hostname required). It supports both Chat Completions and Responses-style requests, translates streaming responses for Cursor, and can set itself up as a Windows scheduled task.
 
 > [!WARNING]
 > The tunnel URL points to a proxy backed by your Codex session. Keep it private and do not commit real auth files, `.env` files, service logs, or generated tunnel config.
@@ -19,11 +19,12 @@
 - **OpenAI-compatible routes** - serves `/health`, `/v1/models`, `/v1/chat/completions`, and `/v1/responses`.
 - **Cursor-friendly streaming** - converts upstream Responses SSE into Chat Completions chunks when needed.
 - **Codex auth reuse** - reads and refreshes the Codex CLI credentials from `~/.codex/auth.json`.
+- **Codex usage status** - shows ChatGPT/Codex 5h and weekly usage windows with reset times.
 - **Named Cloudflare Tunnel** - exposes the proxy at the stable HTTPS hostname you configure in Cloudflare (no quick/`*.trycloudflare.com` fallback).
-- **Windows service mode** - installs or removes an auto-start scheduled task with `schtasks`.
+- **Windows service mode** - sets up or tears down an auto-start scheduled task with `schtasks`.
 - **Concurrency control** - caps upstream in-flight requests with `CODEX_MAX_CONCURRENCY`.
 
-## Installation
+## Setup
 
 Prerequisites:
 
@@ -35,7 +36,7 @@ npm i -g @openai/codex
 codex login
 ```
 
-Install project dependencies from the repository root:
+Fetch project dependencies from the repository root:
 
 ```bash
 bun install
@@ -54,7 +55,7 @@ Set both `CLOUDFLARE_TUNNEL_TOKEN` and `CLOUDFLARE_TUNNEL_HOSTNAME` first (see [
 Start the proxy in the foreground:
 
 ```bash
-bun run src/index.ts start
+bun start
 ```
 
 When the banner prints a tunnel URL, configure Cursor (the model is picked in Cursor's UI):
@@ -86,11 +87,12 @@ Usage: codex-cursor-proxy [command]
 
 Commands:
   start      (default) Run the proxy in the foreground
-  install    Install as a Windows scheduled task (auto-start on logon)
-  uninstall  Remove the auto-start scheduled task
+  up         Set up a Windows scheduled task (auto-start on logon)
+  down       Tear down the auto-start scheduled task
   status     Show auth, service and tunnel state
+  usage      Show ChatGPT/Codex usage limits and reset times
   logs       Print the last lines of the service log
-  version    Print the installed version
+  version    Print the package version
   help       Show this help
 
 Env:
@@ -104,27 +106,44 @@ Env:
 
 ### Windows auto-start
 
-Install the scheduled task:
+Set up the scheduled task:
 
 ```bash
-bun run src/index.ts install
+bun run up
 ```
 
 Check status and logs:
 
 ```bash
-bun run src/index.ts status
-bun run src/index.ts logs
+bun run status
+bun run usage
+bun run logs
 ```
 
-Remove the scheduled task:
+Tear down the scheduled task:
 
 ```bash
-bun run src/index.ts uninstall
+bun run down
 ```
 
 > [!IMPORTANT]
-> `install`, `uninstall`, and `logs` are Windows-only. Run service installation from an elevated shell if `schtasks` reports access denied.
+> `up`, `down`, and `logs` are Windows-only. Run service setup from an elevated shell if `schtasks` reports access denied.
+
+### Codex usage
+
+Show the current ChatGPT/Codex usage windows:
+
+```bash
+bun run usage
+```
+
+The command displays the 5h and weekly limits returned by ChatGPT/Codex, including percentage used, percentage remaining, and reset time, for example `Réinitialisation : 19:56` or `Réinitialisation : 31 mai 2026 18:58`. It uses the same Codex login as the proxy and calls the ChatGPT/Codex `backend-api/wham/usage` endpoint. That endpoint is not an official OpenAI Platform API and may change; it is different from the official organization usage/costs endpoints for API keys.
+
+For scripts:
+
+```bash
+bun run usage -- --json
+```
 
 ## Configuration
 

@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import type { CodexUsageSnapshot, CodexUsageWindow } from "./usage.ts";
 
 export interface BannerInfo {
   account: string;
@@ -46,7 +47,7 @@ export function printMissingAuth(authPath: string): void {
     `  ${pc.red("✗")} ${pc.bold("No Codex credentials found.")}`,
     `    ${pc.dim(authPath)}`,
     "",
-    `    ${pc.dim("Install the official Codex CLI then log in:")}`,
+    `    ${pc.dim("Set up the official Codex CLI then log in:")}`,
     `      ${pc.cyan("npm i -g @openai/codex")}`,
     `      ${pc.cyan("codex login")}`,
     "",
@@ -69,7 +70,7 @@ export function printVersion(name: string, version: string): void {
 export interface StatusInfo {
   account: string;
   plan: string | null;
-  service: "installed" | "absent" | "n/a";
+  service: "set-up" | "absent" | "n/a";
   proxyReachable: boolean;
   localUrl: string;
   tunnelUrl: string | null;
@@ -82,10 +83,10 @@ export function printStatus(info: StatusInfo): void {
   const planSuffix = info.plan ? pc.dim(`  (${info.plan})`) : "";
 
   const serviceLine =
-    info.service === "installed"
-      ? `${pc.green("✓")} ${pc.dim("Service")}  installed${info.proxyReachable ? pc.dim(" (running)") : pc.yellow(" (not reachable)")}`
+    info.service === "set-up"
+      ? `${pc.green("✓")} ${pc.dim("Service")}  set up${info.proxyReachable ? pc.dim(" (running)") : pc.yellow(" (not reachable)")}`
       : info.service === "absent"
-        ? `${pc.dim("·")} ${pc.dim("Service")}  not installed`
+        ? `${pc.dim("·")} ${pc.dim("Service")}  not set up`
         : `${pc.dim("·")} ${pc.dim("Service")}  ${pc.dim("(Windows only)")}`;
 
   const proxyLine = info.proxyReachable
@@ -115,9 +116,9 @@ export function printStatus(info: StatusInfo): void {
     );
   }
 
-  if (info.service === "installed" && !info.proxyReachable) {
+  if (info.service === "set-up" && !info.proxyReachable) {
     lines.push(
-      pc.yellow("  Service is installed but proxy isn't reachable."),
+      pc.yellow("  Service is set up but proxy isn't reachable."),
       pc.dim("  Check logs with: ") + pc.cyan("codex-cursor-proxy logs"),
       "",
     );
@@ -126,10 +127,10 @@ export function printStatus(info: StatusInfo): void {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
-export function printServiceInstalled(taskName: string, logPath: string): void {
+export function printServiceUp(taskName: string, logPath: string): void {
   const lines = [
     "",
-    `  ${pc.green("✓")} ${pc.bold("Service installed")} ${pc.dim(`(${taskName})`)}`,
+    `  ${pc.green("✓")} ${pc.bold("Service set up")} ${pc.dim(`(${taskName})`)}`,
     `    ${pc.dim("Trigger :")}  on Windows logon`,
     `    ${pc.dim("Logs    :")}  ${logPath}`,
     "",
@@ -139,13 +140,68 @@ export function printServiceInstalled(taskName: string, logPath: string): void {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
-export function printServiceUninstalled(): void {
+export function printServiceDown(): void {
   const lines = [
     "",
-    `  ${pc.green("✓")} ${pc.bold("Service removed")}`,
+    `  ${pc.green("✓")} ${pc.bold("Service torn down")}`,
     `    ${pc.dim("Logs preserved under ~/.codex/cursor-proxy/proxy.log")}`,
     "",
   ];
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+export function printUsage(info: CodexUsageSnapshot): void {
+  const title = pc.bold(pc.cyan("codex-cursor-proxy"));
+  const arrow = pc.dim("▸");
+  const planSuffix = info.plan ? pc.dim(`  (${info.plan})`) : "";
+  const lines: string[] = [
+    "",
+    `  ${title}  ${arrow}  ${pc.bold("usage")}`,
+    "",
+    `  ${pc.green("✓")} ${pc.dim("Auth   ")}  ${info.account}${planSuffix}`,
+    `  ${pc.dim("·")} ${pc.dim("Source ")}  ChatGPT/Codex usage endpoint ${pc.dim("(unofficial)")}`,
+    "",
+  ];
+
+  const windows = [
+    ["5h", info.primaryWindow],
+    ["Weekly", info.secondaryWindow],
+  ] as const;
+
+  let renderedWindow = false;
+  for (const [fallbackLabel, window] of windows) {
+    if (!window) continue;
+    renderedWindow = true;
+    lines.push(...usageWindowLines(fallbackLabel, window), "");
+  }
+
+  if (!renderedWindow) {
+    lines.push(`  ${pc.yellow("!")} ${pc.dim("Limits ")}  no rate-limit windows returned`, "");
+  }
+
+  if (info.allowed !== null || info.limitReached !== null) {
+    const status = info.limitReached
+      ? pc.red("limit reached")
+      : info.allowed === false
+        ? pc.yellow("not allowed")
+        : info.allowed
+          ? pc.green("allowed")
+          : pc.dim("unknown");
+    lines.push(`  ${pc.dim("Status")}   ${status}`, "");
+  }
+
+  if (info.credits) {
+    const creditParts: string[] = [];
+    if (info.credits.unlimited) creditParts.push("unlimited");
+    if (info.credits.balance !== null) creditParts.push(`balance ${info.credits.balance}`);
+    if (info.credits.hasCredits !== null && creditParts.length === 0) {
+      creditParts.push(info.credits.hasCredits ? "available" : "none");
+    }
+    if (creditParts.length > 0) {
+      lines.push(`  ${pc.dim("Credits")}  ${creditParts.join(pc.dim(", "))}`, "");
+    }
+  }
+
   process.stdout.write(lines.join("\n") + "\n");
 }
 
@@ -159,11 +215,12 @@ export function printHelp(): void {
     "",
     `  ${pc.bold("Commands:")}`,
     `    ${pc.cyan("start")}      ${pc.dim("(default)")} Run the proxy in the foreground`,
-    `    ${pc.cyan("install")}    Install as a Windows scheduled task (auto-start on logon)`,
-    `    ${pc.cyan("uninstall")}  Remove the auto-start scheduled task`,
+    `    ${pc.cyan("up")}         Set up a Windows scheduled task (auto-start on logon)`,
+    `    ${pc.cyan("down")}       Tear down the auto-start scheduled task`,
     `    ${pc.cyan("status")}     Show auth, service and tunnel state`,
+    `    ${pc.cyan("usage")}      Show ChatGPT/Codex usage limits and reset times`,
     `    ${pc.cyan("logs")}       Print the last lines of the service log`,
-    `    ${pc.cyan("version")}    Print the installed version`,
+    `    ${pc.cyan("version")}    Print the package version`,
     `    ${pc.cyan("help")}       Show this help`,
     "",
     `  ${pc.bold("Environment variables:")}`,
@@ -197,6 +254,66 @@ export const log = {
     process.stderr.write(`  ${pc.red("✗")}  ${msg}\n`);
   },
 };
+
+function usageWindowLines(fallbackLabel: string, window: CodexUsageWindow): string[] {
+  const label = labelForWindow(fallbackLabel, window.limitWindowSeconds);
+  const used = formatPercent(window.usedPercent);
+  const remaining = formatPercent(
+    window.usedPercent === null ? null : Math.max(0, 100 - window.usedPercent),
+  );
+  const reset = formatReset(window);
+  return [
+    `  ${pc.bold(label)}`,
+    `    ${pc.dim("Utilisé          :")} ${used}`,
+    `    ${pc.dim("Restant          :")} ${remaining}`,
+    `    ${pc.dim("Réinitialisation :")} ${reset}`,
+  ];
+}
+
+function labelForWindow(fallbackLabel: string, seconds: number | null): string {
+  if (seconds === 18_000) return "5h limit";
+  if (seconds === 604_800) return "Weekly limit";
+  if (seconds !== null) return `Window ${seconds}s`;
+  return `${fallbackLabel} limit`;
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) return pc.dim("unknown");
+  const rounded = Number.isInteger(value) ? value.toString() : value.toFixed(1);
+  return `${rounded}%`;
+}
+
+function formatReset(window: CodexUsageWindow): string {
+  const resetAt =
+    window.resetAt !== null
+      ? window.resetAt * 1000
+      : window.resetAfterSeconds !== null
+        ? Date.now() + window.resetAfterSeconds * 1000
+        : null;
+  if (resetAt === null || !Number.isFinite(resetAt)) return pc.dim("unknown");
+
+  const date = new Date(resetAt);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (sameDay) {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 function cursorSetupBox(tunnelUrl: string): string {
   return boxed("Cursor setup", [

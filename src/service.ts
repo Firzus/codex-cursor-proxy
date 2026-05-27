@@ -13,10 +13,14 @@ export class ServiceError extends Error {
 }
 
 export interface ServiceState {
-  installed: boolean;
+  setUp: boolean;
   started: boolean;
   startError: string | null;
   logPath: string;
+}
+
+export interface ServiceQueryState {
+  setUp: boolean;
 }
 
 export function assertWindows(action: string): void {
@@ -25,8 +29,8 @@ export function assertWindows(action: string): void {
   }
 }
 
-export async function installService(scriptPath: string): Promise<ServiceState> {
-  assertWindows("install");
+export async function upService(scriptPath: string): Promise<ServiceState> {
+  assertWindows("up");
   await mkdir(PROXY_DIR, { recursive: true });
 
   const bunPath = process.execPath;
@@ -71,15 +75,15 @@ export async function installService(scriptPath: string): Promise<ServiceState> 
     : trimOutput(run.stderr || run.stdout || "unknown error");
 
   return {
-    installed: true,
+    setUp: true,
     started,
     startError,
     logPath: LOG_FILE,
   };
 }
 
-export async function uninstallService(): Promise<void> {
-  assertWindows("uninstall");
+export async function downService(): Promise<void> {
+  assertWindows("down");
 
   spawnSync("schtasks", ["/End", "/TN", SERVICE_NAME], { encoding: "utf8" });
   const del = spawnSync(
@@ -103,29 +107,28 @@ export async function uninstallService(): Promise<void> {
   await safeUnlink(RUNNER_CMD);
 }
 
-export function queryService(): ServiceState {
+export function queryService(): ServiceQueryState {
   if (process.platform !== "win32") {
-    return { installed: false, started: false, startError: null, logPath: LOG_FILE };
+    return { setUp: false };
   }
   const result = spawnSync(
     "schtasks",
     ["/Query", "/TN", SERVICE_NAME],
     { encoding: "utf8" },
   );
-  return {
-    installed: result.status === 0,
-    started: result.status === 0,
-    startError: null,
-    logPath: LOG_FILE,
-  };
+  return { setUp: result.status === 0 };
 }
 
 async function safeUnlink(path: string): Promise<void> {
   try {
     await unlink(path);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if (!hasErrorCode(err, "ENOENT")) throw err;
   }
+}
+
+function hasErrorCode(err: unknown, code: string): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === code;
 }
 
 function trimOutput(text: string): string {

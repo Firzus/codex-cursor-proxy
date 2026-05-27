@@ -10,7 +10,10 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
+    "up": "bun run src/index.ts up",
+    "down": "bun run src/index.ts down",
     "status": "bun run src/index.ts status",
+    "usage": "bun run src/index.ts usage",
     "logs": "bun run src/index.ts logs",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck"
