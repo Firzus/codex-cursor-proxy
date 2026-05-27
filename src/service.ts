@@ -13,7 +13,7 @@ export class ServiceError extends Error {
 }
 
 export interface ServiceState {
-  installed: boolean;
+  setUp: boolean;
   started: boolean;
   startError: string | null;
   logPath: string;
@@ -25,8 +25,8 @@ export function assertWindows(action: string): void {
   }
 }
 
-export async function installService(scriptPath: string): Promise<ServiceState> {
-  assertWindows("install");
+export async function upService(scriptPath: string): Promise<ServiceState> {
+  assertWindows("up");
   await mkdir(PROXY_DIR, { recursive: true });
 
   const bunPath = process.execPath;
@@ -71,15 +71,15 @@ export async function installService(scriptPath: string): Promise<ServiceState> 
     : trimOutput(run.stderr || run.stdout || "unknown error");
 
   return {
-    installed: true,
+    setUp: true,
     started,
     startError,
     logPath: LOG_FILE,
   };
 }
 
-export async function uninstallService(): Promise<void> {
-  assertWindows("uninstall");
+export async function downService(): Promise<void> {
+  assertWindows("down");
 
   spawnSync("schtasks", ["/End", "/TN", SERVICE_NAME], { encoding: "utf8" });
   const del = spawnSync(
@@ -105,7 +105,7 @@ export async function uninstallService(): Promise<void> {
 
 export function queryService(): ServiceState {
   if (process.platform !== "win32") {
-    return { installed: false, started: false, startError: null, logPath: LOG_FILE };
+    return { setUp: false, started: false, startError: null, logPath: LOG_FILE };
   }
   const result = spawnSync(
     "schtasks",
@@ -113,7 +113,7 @@ export function queryService(): ServiceState {
     { encoding: "utf8" },
   );
   return {
-    installed: result.status === 0,
+    setUp: result.status === 0,
     started: result.status === 0,
     startError: null,
     logPath: LOG_FILE,

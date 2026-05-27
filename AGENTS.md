@@ -8,7 +8,7 @@
 - Allowed: edit `src/**/*.ts`, root config/docs, and focused tests/config if added later.
 - Must preserve OpenAI-compatible API behavior for `/health`, `/v1/models`, `/v1/chat/completions`, and `/v1/responses`.
 - Must not read, print, commit, or modify real credentials in `~/.codex/auth.json`, `.env`, `.env.local`, or generated service files under `~/.codex/cursor-proxy`.
-- Must not install/uninstall Windows scheduled tasks, start long-running tunnels, or launch the proxy unless explicitly requested.
+- Must not set up/tear down Windows scheduled tasks, start long-running tunnels, or launch the proxy unless explicitly requested.
 
 ## Build, Test & Validation Commands
 
@@ -25,6 +25,10 @@ bun run src/index.ts help
 ```
 
 ```bash
+bun run src/index.ts usage  # (verified only when explicitly requested; calls ChatGPT/Codex usage endpoint)
+```
+
+```bash
 bun run src/index.ts start  # (unverified; starts local server and Cloudflare tunnel)
 ```
 
@@ -33,11 +37,11 @@ bun --watch run src/index.ts  # (unverified; long-running dev watcher)
 ```
 
 ```bash
-bun run src/index.ts install  # (unverified; Windows scheduled-task side effects)
-bun run src/index.ts uninstall  # (unverified; Windows scheduled-task side effects)
+bun run src/index.ts up  # (unverified; Windows scheduled-task side effects)
+bun run src/index.ts down  # (unverified; Windows scheduled-task side effects)
 ```
 
-- Install/setup command is not listed as verified because dependency install is not run during agent setup; use the Bun lockfile already present.
+- The service `up` command is not listed as verified because dependency setup is not run during agent setup; use the Bun lockfile already present.
 - No test, lint, format, or build scripts are defined in `package.json`.
 
 ## Conventions & Patterns
@@ -45,6 +49,7 @@ bun run src/index.ts uninstall  # (unverified; Windows scheduled-task side effec
 - Source layout: all implementation files live in `src/`; CLI entrypoint is `src/index.ts`; command dispatch is `src/cli.ts`; HTTP proxy is `src/server.ts`.
 - Auth: `src/auth.ts` reads and refreshes Codex credentials from `~/.codex/auth.json`; keep token handling bounded and never log token values.
 - Upstream calls: `src/upstream.ts` sends streaming requests to ChatGPT Codex backend with concurrency limiting and retry handling.
+- Usage calls: `src/usage.ts` may call ChatGPT/Codex `backend-api/wham/usage` to show 5h/weekly limits and reset times; treat it as a non-official endpoint and never print auth tokens or raw credential files.
 - Translation: `src/translate.ts` owns OpenAI Chat Completions <-> Responses API shape conversion; keep protocol mapping changes localized there when possible.
 - Tunnels: `src/tunnel.ts` owns the (mandatory) named Cloudflare tunnel behavior and persists tunnel URL metadata under `~/.codex/cursor-proxy`. Both `CLOUDFLARE_TUNNEL_TOKEN` and `CLOUDFLARE_TUNNEL_HOSTNAME` are required; startup throws if either is missing.
 - Services: `src/service.ts` is Windows-only scheduled-task integration using `schtasks`; gate platform-specific behavior with `process.platform`.
@@ -61,11 +66,11 @@ bun run src/index.ts uninstall  # (unverified; Windows scheduled-task side effec
 - Don't add dependencies without approval; this repo currently has a minimal dependency set.
 - Don't introduce a second runtime/package manager path; default to Bun.
 - Don't add broad framework abstractions for this small CLI.
-- Don't change public command names (`start`, `install`, `uninstall`, `status`, `logs`, `help`) without updating CLI help and docs.
+- Don't change public command names (`start`, `up`, `down`, `status`, `usage`, `logs`, `help`) without updating CLI help and docs.
 - Don't edit `bun.lock` manually.
 
 ## Safety & Guardrails
-- Off-limits unless explicitly requested: real auth files, `.env*` secrets, Windows scheduled-task installation/removal, Cloudflare tunnel credentials, generated files in `~/.codex/cursor-proxy`.
+- Off-limits unless explicitly requested: real auth files, `.env*` secrets, Windows scheduled-task up/down, Cloudflare tunnel credentials, generated files in `~/.codex/cursor-proxy`.
 - Safe to automate: static reads, focused source edits, `bun --version`, `bun run typecheck`, and `bun run src/index.ts help`.
 - Avoid commands that start servers, watchers, tunnels, or Windows service mutations unless the user asks.
 - Never commit secrets, logs, local tunnel URLs, or generated debug dumps.
