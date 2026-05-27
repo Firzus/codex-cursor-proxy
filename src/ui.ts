@@ -211,11 +211,14 @@ function cursorSetupBox(tunnelUrl: string): string {
 
 function boxed(title: string, lines: string[]): string {
   const visualWidths = lines.map((l) => visibleLength(l));
-  const inner = Math.max(title.length + 4, ...visualWidths) + 2;
+  // Inner width counts everything between the two vertical borders.
+  // Body lines are rendered as "│  <content><pad>  │", so we reserve
+  // 2 spaces of padding on each side of the longest content.
+  const inner = Math.max(title.length + 4, ...visualWidths) + 4;
   const top = `  ${pc.dim(`┌─ ${title} ${"─".repeat(Math.max(0, inner - title.length - 4))}┐`)}`;
   const body = lines.map((l) => {
-    const pad = " ".repeat(Math.max(0, inner - visibleLength(l) - 2));
-    return `  ${pc.dim("│")}  ${l}${pad}${pc.dim("│")}`;
+    const pad = " ".repeat(Math.max(0, inner - visibleLength(l) - 4));
+    return `  ${pc.dim("│")}  ${l}${pad}  ${pc.dim("│")}`;
   });
   const bottom = `  ${pc.dim(`└${"─".repeat(inner)}┘`)}`;
   return [top, ...body, bottom].join("\n");
