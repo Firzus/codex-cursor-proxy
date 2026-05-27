@@ -1,7 +1,5 @@
 import pc from "picocolors";
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-
 export interface BannerInfo {
   account: string;
   plan: string | null;
@@ -202,7 +200,7 @@ export const log = {
 
 function cursorSetupBox(tunnelUrl: string): string {
   return boxed("Cursor setup", [
-    pc.dim("Settings → Models → OpenAI API Key"),
+    pc.dim("Settings > Models > OpenAI API Key"),
     "",
     `${pc.dim("Base URL :")}  ${pc.bold(`${tunnelUrl}/v1`)}`,
     `${pc.dim("API Key  :")}  any-non-empty-string`,
@@ -210,12 +208,14 @@ function cursorSetupBox(tunnelUrl: string): string {
 }
 
 function boxed(title: string, lines: string[]): string {
-  const visualWidths = lines.map((l) => visibleLength(l));
+  const visualWidths = lines.map(visibleLength);
   // Inner width counts everything between the two vertical borders.
   // Body lines are rendered as "│  <content><pad>  │", so we reserve
   // 2 spaces of padding on each side of the longest content.
   const inner = Math.max(title.length + 4, ...visualWidths) + 4;
-  const top = `  ${pc.dim(`┌─ ${title} ${"─".repeat(Math.max(0, inner - title.length - 4))}┐`)}`;
+  // Top: "┌─ <title> <dashes>┐" — between ┌ and ┐ we render "─" + " " + title + " " + dashes
+  // which sums to title.length + 3 + dashes, so dashes = inner - title.length - 3.
+  const top = `  ${pc.dim(`┌─ ${title} ${"─".repeat(Math.max(0, inner - title.length - 3))}┐`)}`;
   const body = lines.map((l) => {
     const pad = " ".repeat(Math.max(0, inner - visibleLength(l) - 4));
     return `  ${pc.dim("│")}  ${l}${pad}  ${pc.dim("│")}`;
@@ -224,6 +224,10 @@ function boxed(title: string, lines: string[]): string {
   return [top, ...body, bottom].join("\n");
 }
 
+// Bun.stringWidth strips ANSI escapes and computes terminal display width
+// (handles wide CJK glyphs, surrogate pairs, emojis). Ambiguous-width chars
+// like → are treated as 1 column here; avoid them in box content since some
+// Windows terminals render them as 2 columns and break alignment.
 function visibleLength(input: string): number {
-  return input.replace(ANSI_RE, "").length;
+  return Bun.stringWidth(input);
 }
