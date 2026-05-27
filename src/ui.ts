@@ -1,6 +1,6 @@
 import pc from "picocolors";
 
-const ANSI_RE = /\[[0-9;]*m/g;
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 export interface BannerInfo {
   account: string;
