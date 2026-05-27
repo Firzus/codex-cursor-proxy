@@ -277,10 +277,6 @@ export function chatStreamFromResponses(
 
   return new ReadableStream({
     async start(controller) {
-      // SSE keepalive: emit a comment line `: keepalive\n\n` if we haven't sent
-      // anything in the last KEEPALIVE_INTERVAL_MS. Prevents strict clients
-      // (Cursor) from aborting the connection while waiting for the first token
-      // (reasoning models can take 3-10s before any output_text delta).
       const KEEPALIVE_INTERVAL_MS = 5_000;
       let lastEmit = Date.now();
       const safeEnqueue = (bytes: Uint8Array): void => {
@@ -338,10 +334,7 @@ export function chatStreamFromResponses(
         clearKeepalive();
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
-        // Emit the error as content (with `role: assistant` first if needed),
-        // then a clean `finish_reason: "stop"` chunk. Avoid non-standard fields
-        // (like a top-level `error`) that strict clients (Cursor) reject as
-        // `invalid_argument`.
+        // Keep strict Chat Completions clients on the standard chunk shape.
         try {
           if (!state.roleEmitted) {
             controller.enqueue(
@@ -367,10 +360,6 @@ export function chatStreamFromResponses(
     cancel(reason) {
       cancelled = true;
       clearKeepalive();
-      // Abort upstream so the underlying fetch and its body stream tear down
-      // immediately — otherwise parseSSE would keep draining the remote until
-      // it ends naturally, holding the upstream semaphore slot for tens of
-      // seconds after the client is gone.
       try {
         abortUpstream(reason);
       } catch {
@@ -427,8 +416,6 @@ export async function chatCompletionFromResponses(
       }
     }
   } catch (err) {
-    // Tear down the upstream so the semaphore slot is released and we don't
-    // keep accumulating bytes into an unread teeStream buffer.
     try {
       abortUpstream(err);
     } catch {
@@ -611,9 +598,6 @@ export async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenera
   }
 }
 
-// SSE allows event terminators to be \n\n, \r\n\r\n, or \r\r. Pick whichever
-// occurs earliest in the buffer so intermediaries that rewrite line endings
-// don't deadlock the parser by hiding the \n\n inside a \r\n\r\n sequence.
 function findEventBoundary(buffer: string): { end: number; sepLen: number } | null {
   let best: { end: number; sepLen: number } | null = null;
   for (const sep of ["\r\n\r\n", "\n\n", "\r\r"]) {

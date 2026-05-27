@@ -9,10 +9,6 @@ const ORIGINATOR = "codex_cli_rs";
 const VERSION = "0.150.0";
 const USER_AGENT = `codex_cli_rs/${VERSION} (codex-cursor-proxy)`;
 
-// Cap at 10 in-flight requests by default to stay friendly to the ChatGPT
-// Plus/Pro account quota while leaving plenty of room for Cursor
-// multi-subagent workflows. Lower it (CODEX_MAX_CONCURRENCY=2) if you hit
-// account-side rate limits.
 const MAX_CONCURRENCY = parsePositiveIntEnv("CODEX_MAX_CONCURRENCY", 10);
 const RETRY_MAX = 3;
 const HEADERS_TIMEOUT_MS = 60_000;
@@ -38,10 +34,6 @@ async function acquire(): Promise<void> {
     return;
   }
   await new Promise<void>((resolve) => waiters.push(resolve));
-  // release() handed the slot directly to us without decrementing inFlight,
-  // so we must NOT increment here — otherwise a fast-path acquire that ran
-  // between release()'s next() and our wake-up would push inFlight above
-  // MAX_CONCURRENCY.
 }
 
 function release(): void {
@@ -117,10 +109,6 @@ function wrapReleaseStream(
       }
     },
     cancel(reason) {
-      // The source is locked by the reader started above, so source.cancel()
-      // would reject. Abort the underlying fetch instead — that surfaces in
-      // the reader.read() loop as a rejection, which routes through the
-      // catch/finally and releases the semaphore slot exactly once.
       try {
         abortUpstream(reason);
       } catch {
@@ -181,12 +169,9 @@ async function performRequest(
     const msg = err instanceof Error ? err.message : String(err);
     throw new UpstreamError(`Upstream fetch failed: ${msg}`, 0, msg);
   }
-  // The headers are in; clear the timer but keep the AbortController so the
-  // body stream can still be aborted on client disconnect via t.abort().
   t.clear();
 
   if (res.status === 401 && allowRetry) {
-    // Drain the 401 body so the underlying connection isn't held open.
     try {
       await res.body?.cancel();
     } catch {

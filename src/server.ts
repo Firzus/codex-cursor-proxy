@@ -64,10 +64,6 @@ function teeStream(source: ReadableStream<Uint8Array>, pathname: string): Readab
   if (!DEBUG) return source;
   const decoder = new TextDecoder();
   const chunks: string[] = [];
-  // pipeThrough propagates cancellation from the downstream consumer back to
-  // `source` automatically (the writable side errors → the pipe aborts →
-  // source.cancel is invoked). That's how the upstream semaphore slot gets
-  // released when a client disconnects mid-stream.
   const transform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       controller.enqueue(chunk);
@@ -220,9 +216,7 @@ async function handleChatCompletions(
       stream: teeStream(upstreamRaw.stream, pathname),
       abort: upstreamRaw.abort,
     };
-    // Response format follows the ENDPOINT, not the request body format:
-    //   /v1/responses          -> passthrough upstream SSE (Responses shape)
-    //   /v1/chat/completions   -> translate to Chat Completions (chunks if stream, single object otherwise)
+    // Response format follows the endpoint, not the request body shape.
     const tags = requestTags(upstreamBody);
     if (pathname === "/v1/responses") {
       log.ok(`/v1/responses ${model} (${msElapsed(started)})${isStream ? " stream" : ""}${tags}`);
@@ -242,9 +236,7 @@ async function handleChatCompletions(
   } catch (err) {
     if (err instanceof UpstreamError) {
       log.err(`upstream ${err.status} (${msElapsed(started)})`);
-      // Don't relay upstream 401/403/429 verbatim — OpenAI clients (Cursor)
-      // would treat those as their own API-key / quota errors. Surface them
-      // as a generic 502 with the upstream detail in the message instead.
+      // Avoid making Cursor treat upstream auth/quota failures as local API-key issues.
       const status = err.status >= 500 || err.status === 0 ? 502 : err.status === 401 || err.status === 403 || err.status === 429 ? 502 : err.status;
       return errorResponse(status, err.message, cors);
     }
@@ -281,9 +273,6 @@ function sseHeaders(cors: Record<string, string>): Record<string, string> {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
-    // Tells proxies (nginx, localtunnel, cloudflared) to NOT buffer the response.
-    // Without this, intermediaries can hold chunks until they fill an internal
-    // buffer, causing clients to time out waiting for the first byte.
     "X-Accel-Buffering": "no",
   };
 }

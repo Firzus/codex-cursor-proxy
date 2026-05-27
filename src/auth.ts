@@ -46,10 +46,6 @@ export async function getAuth(forceRefresh = false): Promise<AuthClaims> {
   if (!forceRefresh && cached && cached.expiresAt - REFRESH_MARGIN_MS > Date.now()) {
     return cached;
   }
-  // Reuse the inflight only if it can satisfy our request. A non-refreshing
-  // inflight (one that may return the same on-disk token we already know is
-  // bad) cannot satisfy a forceRefresh caller — otherwise the 401-retry path
-  // would loop forever on the same dead token.
   if (inflight && (!forceRefresh || inflight.isRefreshing)) {
     return inflight.promise;
   }
@@ -177,9 +173,6 @@ async function refresh(current: AuthFile): Promise<AuthClaims> {
 
 async function persist(file: AuthFile): Promise<void> {
   await mkdir(dirname(AUTH_FILE), { recursive: true });
-  // Atomic write: stage to a sibling temp file, then rename. On Windows and
-  // POSIX a same-directory rename is atomic, so a crash mid-write leaves the
-  // previous valid auth.json intact instead of a truncated file.
   const tmp = `${AUTH_FILE}.${process.pid}.tmp`;
   try {
     await writeFile(tmp, JSON.stringify(file, null, 2), { encoding: "utf8", mode: 0o600 });

@@ -30,10 +30,7 @@ export async function installService(scriptPath: string): Promise<ServiceState> 
   await mkdir(PROXY_DIR, { recursive: true });
 
   const bunPath = process.execPath;
-  // Bun auto-loads `.env` from the current working directory. Scheduled tasks
-  // launched at logon inherit System32 as cwd, so we `cd` into the project
-  // root first — otherwise CLOUDFLARE_TUNNEL_TOKEN / _HOSTNAME are missing
-  // and the proxy aborts at startup.
+  // Scheduled tasks start from System32; run from the project root so Bun can load `.env`.
   const absoluteScript = resolve(scriptPath);
   const projectRoot = resolve(dirname(absoluteScript), "..");
   const runnerContent =
@@ -126,8 +123,8 @@ export function queryService(): ServiceState {
 async function safeUnlink(path: string): Promise<void> {
   try {
     await unlink(path);
-  } catch {
-    // ignore missing
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 }
 
