@@ -99,12 +99,14 @@ export async function runServer(): Promise<void> {
     await server.stop();
   });
 
-  let tunnelUrl: string;
+  let tunnel: Awaited<ReturnType<typeof openTunnel>>;
   try {
-    const tunnel = await openTunnel(PORT);
+    tunnel = await openTunnel(PORT);
     onShutdown(() => tunnel.close());
-    tunnelUrl = tunnel.url;
   } catch (err) {
+    // openTunnel only throws on misconfiguration (missing token/hostname) or a
+    // failed first-run binary install — both genuinely fatal. Transient edge
+    // connection failures no longer reach here; the tunnel self-heals.
     printFatal(`Failed to open tunnel: ${err instanceof Error ? err.message : String(err)}`);
     await server.stop();
     process.exit(1);
@@ -114,7 +116,8 @@ export async function runServer(): Promise<void> {
     account: auth.email ?? auth.chatgptAccountId,
     plan: auth.planType,
     localUrl: `http://127.0.0.1:${PORT}`,
-    tunnelUrl,
+    tunnelUrl: tunnel.url,
+    tunnelConnected: tunnel.connected,
     models: SUPPORTED_MODELS,
   });
 }

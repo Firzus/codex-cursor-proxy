@@ -11,6 +11,7 @@ const RECONNECT_DELAY_MS = 2_000;
 
 export interface Tunnel {
   readonly url: string;
+  readonly connected: boolean;
   close(): Promise<void>;
 }
 
@@ -33,45 +34,70 @@ export async function openTunnel(port: number): Promise<Tunnel> {
     );
   }
 
+  // A named tunnel's public URL is fixed by its hostname, so it is known before
+  // cloudflared finishes dialing the Cloudflare edge. That lets us keep the
+  // local proxy up and treat the edge connection as best-effort + self-healing:
+  // a slow or offline network at boot must never bring the proxy down.
+  const url = namedHostname.startsWith("http") ? namedHostname : `https://${namedHostname}`;
+
   let cf: CfTunnel | null = null;
-  let url = "";
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
+  let connected = false;
+  let signalFirstConnect: (() => void) | null = null;
+  const firstConnect = new Promise<void>((resolve) => {
+    signalFirstConnect = resolve;
+  });
 
-  const spawn = async (): Promise<string> => {
-    cf = CfTunnel.withToken(token, { "--url": localUrl });
-    attachVerboseLogs(cf);
-    attachExitHandler(cf);
-    return await waitForNamedTunnelReady(cf, namedHostname);
+  const start = (): void => {
+    const instance = CfTunnel.withToken(token, { "--url": localUrl });
+    attachVerboseLogs(instance);
+    // An "error" event with no listener crashes the whole process, which would
+    // take the healthy local proxy down with it. Always absorb it; the "exit"
+    // handler is what drives reconnection.
+    instance.on("error", (err: Error) => log.warn(`cloudflared error: ${err.message}`));
+    instance.on("connected", () => {
+      connected = true;
+      signalFirstConnect?.();
+      signalFirstConnect = null;
+    });
+    instance.once("exit", () => {
+      connected = false;
+      if (closed) return;
+      log.warn("cloudflared exited; reconnecting…");
+      scheduleReconnect();
+    });
+    cf = instance;
   };
 
   const scheduleReconnect = (): void => {
     if (closed || reconnectTimer !== null) return;
-    reconnectTimer = setTimeout(async () => {
+    reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      if (closed) return;
-      try {
-        url = await spawn();
-        await persistUrl(url);
-      } catch {
-        scheduleReconnect();
-      }
+      if (!closed) start();
     }, RECONNECT_DELAY_MS);
   };
 
-  const attachExitHandler = (instance: CfTunnel): void => {
-    instance.once("exit", () => {
-      if (closed) return;
-      scheduleReconnect();
-    });
-  };
-
-  url = await spawn();
+  start();
   await persistUrl(url);
+
+  // Best effort: give the edge a moment to come up so the banner is accurate,
+  // but never fail. At boot the network/DNS is often not ready within the
+  // window; the tunnel keeps retrying in the background while the proxy serves.
+  await waitOrTimeout(firstConnect, TUNNEL_READY_TIMEOUT_MS);
+  if (!connected) {
+    log.warn(
+      `Tunnel not connected within ${TUNNEL_READY_TIMEOUT_MS / 1000}s — ` +
+        "retrying in the background; the local proxy stays up.",
+    );
+  }
 
   return {
     get url() {
       return url;
+    },
+    get connected() {
+      return connected;
     },
     async close() {
       closed = true;
@@ -81,7 +107,7 @@ export async function openTunnel(port: number): Promise<Tunnel> {
       }
       if (cf) {
         try {
-          cf.removeAllListeners("exit");
+          cf.removeAllListeners();
         } catch {
           // ignore
         }
@@ -95,6 +121,16 @@ export async function openTunnel(port: number): Promise<Tunnel> {
   };
 }
 
+function waitOrTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void promise.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 function attachVerboseLogs(cf: CfTunnel): void {
   const debug = process.env.CODEX_DEBUG === "1";
   cf.on("disconnected", (conn) => {
@@ -106,30 +142,6 @@ function attachVerboseLogs(cf: CfTunnel): void {
     cf.on("stdout", (line: string) => log.info(`[cf-out] ${line}`));
     cf.on("stderr", (line: string) => log.info(`[cf-err] ${line}`));
   }
-}
-
-function waitForNamedTunnelReady(cf: CfTunnel, hostname: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`cloudflared did not connect within ${TUNNEL_READY_TIMEOUT_MS / 1000}s`));
-    }, TUNNEL_READY_TIMEOUT_MS);
-    const onConnected = (): void => {
-      cleanup();
-      resolve(hostname.startsWith("http") ? hostname : `https://${hostname}`);
-    };
-    const onError = (err: Error): void => {
-      cleanup();
-      reject(err);
-    };
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      cf.off("connected", onConnected);
-      cf.off("error", onError);
-    };
-    cf.once("connected", onConnected);
-    cf.once("error", onError);
-  });
 }
 
 async function persistUrl(url: string): Promise<void> {

@@ -6,6 +6,7 @@ export interface BannerInfo {
   plan: string | null;
   localUrl: string;
   tunnelUrl: string;
+  tunnelConnected: boolean;
   models: string[];
 }
 
@@ -14,13 +15,17 @@ export function printBanner(info: BannerInfo): void {
   const arrow = pc.dim("▸");
   const planSuffix = info.plan ? pc.dim(`  (${info.plan})`) : "";
 
+  const tunnelLine = info.tunnelConnected
+    ? `  ${pc.green("✓")} ${pc.dim("Tunnel ")}  ${pc.cyan(info.tunnelUrl)}`
+    : `  ${pc.yellow("!")} ${pc.dim("Tunnel ")}  ${pc.cyan(info.tunnelUrl)} ${pc.yellow("(connecting…)")}`;
+
   const lines: string[] = [
     "",
     `  ${title}  ${arrow}  ${pc.green("running")}`,
     "",
     `  ${pc.green("✓")} ${pc.dim("Auth   ")}  ${info.account}${planSuffix}`,
     `  ${pc.green("✓")} ${pc.dim("Local  ")}  ${info.localUrl}`,
-    `  ${pc.green("✓")} ${pc.dim("Tunnel ")}  ${pc.cyan(info.tunnelUrl)}`,
+    tunnelLine,
     "",
     cursorSetupBox(info.tunnelUrl),
     "",
